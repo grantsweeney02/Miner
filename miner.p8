@@ -1,31 +1,74 @@
 pico-8 cartridge // http://www.pico-8.com
 version 42
 __lua__
+
 cam_y = 0
 SURFACE_HEIGHT = 32
 GRID_SIZE = 16
 MAP_WIDTH = 8
 MAP_HEIGHT = 32
 BEDROCK_LEVEL = MAP_HEIGHT - 2
-TILE_EMPTY = 0
-TILE_DIRT = 1
-TILE_STONE = 2
-TILE_GOLD = 3
-TILE_DIAMOND = 4
-TILE_BEDROCK = 5
-TILE_GAS_PUMP = 6
+
+TILE_GRASS = 0
+TILE_EMPTY = 1
+TILE_DIRT = 2
+TILE_STONE = 3
+TILE_GOLD = 4
+TILE_DIAMOND = 5
+TILE_BEDROCK = 6
+TILE_GAS_PUMP = 7
+
 SPRITE_BEDROCK = 110
 SPRITE_GAS_PUMP = 9
 game_over = false
 
 ore_info = {
-    [TILE_DIRT] = { sprites = { 64, 66 }, durability = 2 },
-    [TILE_STONE] = { sprites = { 68, 70, 72 }, durability = 3 },
-    [TILE_GOLD] = { sprites = { 96, 98, 100 }, durability = 3 },
-    [TILE_DIAMOND] = { sprites = { 102, 104, 106, 108 }, durability = 4 }
+    [TILE_DIRT] = {
+        sprites = { 64, 66 },
+        durability = 2
+    },
+    [TILE_STONE] = {
+        sprites = { 68, 70, 72 },
+        durability = 3
+    },
+    [TILE_GOLD] = {
+        sprites = { 96, 98, 100 },
+        durability = 3
+    },
+    [TILE_DIAMOND] = {
+        sprites = { 102, 104, 106, 108 },
+        durability = 4
+    },
+    [TILE_GRASS] = {
+        -- behaves like dirt, just a different sprite set
+        sprites = { 74, 76 },
+        durability = 2
+    }
+}ore_info = {
+    [TILE_GRASS] = {
+        sprites = { 74, 76 },
+        durability = 2
+    },
+    [TILE_DIRT] = {
+        sprites = { 64, 66 },
+        durability = 2
+    },
+    [TILE_STONE] = {
+        sprites = { 68, 70, 72 },
+        durability = 3
+    },
+    [TILE_GOLD] = {
+        sprites = { 96, 98, 100 },
+        durability = 3
+    },
+    [TILE_DIAMOND] = {
+        sprites = { 102, 104, 106, 108 },
+        durability = 4
+    }
 }
 
 ore_values = {
+    [TILE_GRASS] = 1,
     [TILE_DIRT] = 1,
     [TILE_STONE] = 2,
     [TILE_GOLD] = 5,
@@ -48,7 +91,8 @@ miner = {
         [TILE_DIRT] = 0,
         [TILE_STONE] = 0,
         [TILE_GOLD] = 0,
-        [TILE_DIAMOND] = 0
+        [TILE_DIAMOND] = 0,
+        [TILE_GRASS] = 0
     },
     minerBucks = 0,
     fuel = 20,
