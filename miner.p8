@@ -1,18 +1,23 @@
 pico-8 cartridge // http://www.pico-8.com
 version 42
 __lua__
+
 --------------------------------------------------------------------------------
 -- CONSTANTS
 --------------------------------------------------------------------------------
 cam_y = 0
-SURFACE_HEIGHT = 32
-GRID_SIZE = 16
-MAP_WIDTH = 8
+SURFACE_HEIGHT = 32  -- original
+GRID_SIZE = 8
+MAP_WIDTH = 16
 MAP_HEIGHT = 32
 BEDROCK_LEVEL = MAP_HEIGHT - 2
-local surface_row = flr(SURFACE_HEIGHT / GRID_SIZE) -- usually 2, given 32/16=2
 
--- tile IDs
+-- This calculates row=4 => y=32 for the grass
+local surface_row = flr(SURFACE_HEIGHT / GRID_SIZE)  -- 32/8=4
+
+--------------------------------------------------------------------------------
+-- TILE & SPRITE DEFINITIONS
+--------------------------------------------------------------------------------
 TILE_GRASS   = 0  
 TILE_EMPTY   = 1
 TILE_DIRT    = 2
@@ -21,9 +26,23 @@ TILE_GOLD    = 4
 TILE_DIAMOND = 5
 TILE_BEDROCK = 6
 TILE_GAS_PUMP= 7
+TILE_TRADER  = 8
+TILE_UPGRADE_HUT = 9
 
-SPRITE_BEDROCK = 110
-SPRITE_GAS_PUMP = 9
+SPR_MINER_RIGHT = 33
+SPR_MINER_LEFT  = 34
+SPR_MINER_UP    = 49
+SPR_MINER_DOWN  = 50
+SPR_GAS_PUMP    = 35
+SPR_TRADER      = 51
+SPR_GRASS_FULL  = 36
+SPR_GRASS_BROKEN= 37
+SPR_DIRT        = {38,39}
+SPR_STONE       = {52,53,54}
+SPR_GOLD        = {55,56,57}
+SPR_DIAMOND     = {40,41,42,43}
+SPR_BEDROCK     = 58
+SPR_UPGRADE_HUT = 59
 
 game_over = false
 
@@ -31,58 +50,59 @@ game_over = false
 -- ORE INFO
 --------------------------------------------------------------------------------
 ore_info = {
-    [TILE_DIRT] = {
-        sprites = { 64, 66 },
-        durability = 2
-    },
-    [TILE_STONE] = {
-        sprites = { 68, 70, 72 },
-        durability = 3
-    },
-    [TILE_GOLD] = {
-        sprites = { 96, 98, 100 },
-        durability = 3
-    },
-    [TILE_DIAMOND] = {
-        sprites = { 102, 104, 106, 108 },
-        durability = 4
-    },
-    [TILE_GRASS] = {
-        -- behaves like dirt, but different sprites
-        sprites = { 74, 76 },
-        durability = 2
-    }
+  [TILE_DIRT] = {
+      sprites = SPR_DIRT,
+      durability = 2
+  },
+  [TILE_STONE] = {
+      sprites = SPR_STONE,
+      durability = 3
+  },
+  [TILE_GOLD] = {
+      sprites = SPR_GOLD,
+      durability = 3
+  },
+  [TILE_DIAMOND] = {
+      sprites = SPR_DIAMOND,
+      durability = 4
+  },
+  [TILE_GRASS] = {
+      -- behaves like dirt, but different sprites
+      sprites = {SPR_GRASS_FULL, SPR_GRASS_BROKEN},
+      durability = 2
+  }
 }
 
 --------------------------------------------------------------------------------
--- ORE VALUES: Grass merges with dirt in inventory, so no separate grass entry
+-- ORE VALUES
 --------------------------------------------------------------------------------
 ore_values = {
-    [TILE_DIRT]    = 1,
-    [TILE_STONE]   = 2,
-    [TILE_GOLD]    = 5,
-    [TILE_DIAMOND] = 10
+  [TILE_DIRT]    = 1,
+  [TILE_STONE]   = 2,
+  [TILE_GOLD]    = 5,
+  [TILE_DIAMOND] = 10
 }
 
 --------------------------------------------------------------------------------
 -- MINER
 --------------------------------------------------------------------------------
+-- The miner starts one row ABOVE the grass row (row=3 => y=24).
 miner = {
-    x = 48,
-    y = SURFACE_HEIGHT - GRID_SIZE,
+    x = 6 * GRID_SIZE,
+    y = (surface_row - 1) * GRID_SIZE,  -- row=3 => y=24
     speed = GRID_SIZE,
 
-    sprite_right = 1,
-    sprite_left  = 3,
-    sprite_up    = 5,
-    sprite_down  = 7,
-    current_sprite = 3,
+    sprite_right = SPR_MINER_RIGHT,
+    sprite_left  = SPR_MINER_LEFT,
+    sprite_up    = SPR_MINER_UP,
+    sprite_down  = SPR_MINER_DOWN,
+    current_sprite = SPR_MINER_LEFT,
     move_delay = 10,
     move_timer = 0,
     was_moving_up = false,
 
     inventory = {
-        [TILE_DIRT]    = 0, -- used for both dirt and grass
+        [TILE_DIRT]    = 0, 
         [TILE_STONE]   = 0,
         [TILE_GOLD]    = 0,
         [TILE_DIAMOND] = 0
@@ -100,25 +120,24 @@ map = {}
 for y = 0, MAP_HEIGHT - 1 do
     map[y] = {}
     for x = 0, MAP_WIDTH - 1 do
-
-        -- SKY
         if y < surface_row then
+            -- sky
             map[y][x] = TILE_EMPTY
 
-        -- SURFACE ROW (y == surface_row)
         elseif y == surface_row then
+            -- row=4 => y=32 is grass
             map[y][x] = {
                 t = TILE_GRASS,
                 d = ore_info[TILE_GRASS].durability,
                 sprite = ore_info[TILE_GRASS].sprites[1]
             }
 
-        -- BEDROCK
         elseif y >= BEDROCK_LEVEL then
+            -- bedrock
             map[y][x] = TILE_BEDROCK
 
-        -- UNDERGROUND (random dirt / stone / gold / diamond)
         else
+            -- underground
             local r = rnd()
             if y > 10 and r < 0.05 then
                 map[y][x] = {
@@ -149,8 +168,11 @@ for y = 0, MAP_HEIGHT - 1 do
     end
 end
 
--- place gas pump near the top
-map[1][MAP_WIDTH - 2] = TILE_GAS_PUMP
+-- BUILDINGS: also on row=3 => y=24, so they're clearly above the grass
+local building_row = surface_row - 1
+map[building_row][1] = TILE_GAS_PUMP
+map[building_row][MAP_WIDTH - 2] = TILE_UPGRADE_HUT
+map[building_row][flr(MAP_WIDTH * 3/4)] = TILE_TRADER
 
 --------------------------------------------------------------------------------
 -- CAN_MOVE + COLLISION
@@ -158,10 +180,13 @@ map[1][MAP_WIDTH - 2] = TILE_GAS_PUMP
 function can_move(new_x, new_y)
     local grid_x = new_x / GRID_SIZE
     local grid_y = new_y / GRID_SIZE
-    local cell = map[grid_y][grid_x]
 
+    if grid_x < 0 or grid_x >= MAP_WIDTH or grid_y < 0 or grid_y >= MAP_HEIGHT then
+        return false
+    end
+
+    local cell = map[grid_y][grid_x]
     if type(cell) == "table" then
-        -- it's some ore or grass
         local info = ore_info[cell.t]
         cell.d -= 1
         if cell.d > 0 then
@@ -169,32 +194,27 @@ function can_move(new_x, new_y)
             cell.sprite = info.sprites[stage]
             return false
         else
-            -- fully mined
             if cell.t == TILE_GRASS then
-                -- store as dirt in inventory
                 miner.inventory[TILE_DIRT] += 1
             else
                 miner.inventory[cell.t] += 1
             end
             map[grid_y][grid_x] = TILE_EMPTY
-            sfx(0)
+            sfx(0) -- optional
             return true
         end
-
     elseif cell == TILE_BEDROCK then
         return false
-
     else
-        -- empty or gas pump
         return true
     end
 end
 
 --------------------------------------------------------------------------------
--- AUTO-CONVERT (surface => deposit ores => get minerbucks)
+-- AUTO-CONVERT (Deposit ores at/above grass row=4 => y=32)
 --------------------------------------------------------------------------------
 function auto_convert()
-    if miner.y <= SURFACE_HEIGHT - GRID_SIZE then
+    if miner.y <= (surface_row * GRID_SIZE) then
         for tile_id, tile_value in pairs(ore_values) do
             local count = miner.inventory[tile_id]
             if count and count > 0 then
@@ -209,9 +229,7 @@ end
 -- UPDATE
 --------------------------------------------------------------------------------
 function _update()
-    if game_over then
-        return
-    end
+    if game_over then return end
 
     if miner.fuel <= 0 then
         game_over = true
@@ -224,8 +242,10 @@ function _update()
     end
 
     if miner.x % GRID_SIZE == 0 and miner.y % GRID_SIZE == 0 then
-        local old_x, old_y = miner.x, miner.y
-        local new_x, new_y = old_x, old_y
+        local old_x = miner.x
+        local old_y = miner.y
+        local new_x = old_x
+        local new_y = old_y
 
         -- left
         if btn(0) and miner.x > 0 then
@@ -241,14 +261,13 @@ function _update()
         end
         -- up
         if btn(2) then
-            -- only move up if miner is below the surface
-            if miner.y > SURFACE_HEIGHT - GRID_SIZE then
+            -- only move up if we’re above row=0
+            if miner.y > 0 then
                 new_y -= miner.speed
                 miner.current_sprite = miner.sprite_up
                 miner.was_moving_up = true
             else
                 miner.was_moving_up = false
-                miner.current_sprite = miner.sprite_right
             end
         end
         -- down
@@ -269,19 +288,17 @@ function _update()
         miner.move_timer = miner.move_delay
     end
 
-    -- if the miner reached the surface from below, clamp them there
-    if miner.y <= SURFACE_HEIGHT - GRID_SIZE and miner.was_moving_up then
-        miner.y = SURFACE_HEIGHT - GRID_SIZE
-        miner.current_sprite = miner.sprite_right
-        miner.was_moving_up = false
+    -- clamp if moving up beyond row=0
+    if miner.y < 0 then
+        miner.y = 0
     end
 
-    -- auto-convert ore -> minerbucks at surface
+    -- auto-convert if at/above row=4 => y=32
     auto_convert()
 
-    -- handle fueling at gas pump
-    local pump_x = (MAP_WIDTH - 2) * GRID_SIZE
-    local pump_y = 1 * GRID_SIZE
+    -- fueling at gas pump on row=3 => y=24
+    local pump_x = 1 * GRID_SIZE
+    local pump_y = (surface_row - 1) * GRID_SIZE
     if miner.x == pump_x and miner.y == pump_y then
         if btnp(5) and miner.minerBucks >= 10 then
             miner.minerBucks -= 10
@@ -299,37 +316,45 @@ end
 --------------------------------------------------------------------------------
 function _draw()
     cls(12)
+
     camera(0, cam_y)
 
-    -- background sections
-    rectfill(0, 0, 127, MAP_HEIGHT * GRID_SIZE, 12)  -- sky
-    rectfill(0, SURFACE_HEIGHT, 127, BEDROCK_LEVEL * GRID_SIZE, 4)  -- main dirt region
-    rectfill(0, BEDROCK_LEVEL * GRID_SIZE, 127, MAP_HEIGHT * GRID_SIZE, 0)  -- bedrock region
+    -- fill background for 128 px wide
+    -- row=4 => y=32 is grass
+    rectfill(0, 0, 127, (surface_row*GRID_SIZE) - 1, 12)               -- sky
+    rectfill(0, surface_row*GRID_SIZE, 127, (BEDROCK_LEVEL*GRID_SIZE) - 1, 4) -- dirt
+    rectfill(0, BEDROCK_LEVEL*GRID_SIZE, 127, (MAP_HEIGHT*GRID_SIZE) - 1, 0)  -- bedrock
 
     -- draw map
     for y = 0, MAP_HEIGHT - 1 do
         for x = 0, MAP_WIDTH - 1 do
             local cell = map[y][x]
+            local draw_x = x * GRID_SIZE
+            local draw_y = y * GRID_SIZE
             if type(cell) == "table" then
-                spr(cell.sprite, x * GRID_SIZE, y * GRID_SIZE, 2, 2)
+                spr(cell.sprite, draw_x, draw_y)
             elseif cell == TILE_BEDROCK then
-                spr(SPRITE_BEDROCK, x * GRID_SIZE, y * GRID_SIZE, 2, 2)
+                spr(SPR_BEDROCK, draw_x, draw_y)
             elseif cell == TILE_GAS_PUMP then
-                spr(SPRITE_GAS_PUMP, x * GRID_SIZE, y * GRID_SIZE, 2, 2)
+                spr(SPR_GAS_PUMP, draw_x, draw_y)
+            elseif cell == TILE_TRADER then
+                spr(SPR_TRADER, draw_x, draw_y)
+            elseif cell == TILE_UPGRADE_HUT then
+                spr(SPR_UPGRADE_HUT, draw_x, draw_y)
             end
         end
     end
 
     -- draw miner
     palt()
-    palt(15, true)
+    palt(13, true)  -- invisible color
     palt(0, false)
-    spr(miner.current_sprite, miner.x, miner.y, 2, 2)
+    spr(miner.current_sprite, miner.x, miner.y)
 
     camera()
 
-    -- UI: MinerBucks
-    print("minerbucks: " .. miner.minerBucks, 1, 1, 7)
+    -- UI: minerbucks
+    print("minerbucks: "..miner.minerBucks, 1, 1, 7)
 
     -- UI: fuel bar
     local bar_x = 70
@@ -337,15 +362,13 @@ function _draw()
     local bar_width = 50
     local bar_height = 6
     local fuel_ratio = miner.fuel / miner.max_fuel
-    local percentage = fuel_ratio * 100
     local fill_width = flr(bar_width * fuel_ratio)
-    local bar_color
-    if percentage <= 30 then
+    local bar_color = 11 -- green
+
+    if fuel_ratio <= 0.3 then
         bar_color = 8  -- red
-    elseif percentage < 70 then
+    elseif fuel_ratio < 0.7 then
         bar_color = 10 -- yellow
-    else
-        bar_color = 11 -- green
     end
 
     rectfill(bar_x, bar_y, bar_x + bar_width, bar_y + bar_height, 5)
@@ -353,9 +376,9 @@ function _draw()
     rect(bar_x, bar_y, bar_x + bar_width, bar_y + bar_height, 7)
     print("fuel", bar_x, bar_y + bar_height + 1, 7)
 
-    -- UI: refuel prompt
-    local pump_x = (MAP_WIDTH - 2) * GRID_SIZE
-    local pump_y = 1 * GRID_SIZE
+    -- refuel prompt if on the gas pump tile
+    local pump_x = 1 * GRID_SIZE
+    local pump_y = (surface_row - 1) * GRID_SIZE
     if miner.x == pump_x and miner.y == pump_y then
         if miner.minerBucks >= 10 then
             print("hold x to refuel (10 MB)", 1, 12, 10)
@@ -393,22 +416,22 @@ __gfx__
 00000000fff100011000166ff661000110001ffffffffffffffffffffffff66666ffffffffff88888888ffff0000000000000000000000000000000000000000
 00000000fff10501105016ffff61050110501fffffffffffffffffffffffff666fffffffffff88888888ffff0000000000000000000000000000000000000000
 00000000ffff000ff000ffffffff000ff000fffffffffffffffffffffffffff6ffffffffff555555555555ff0000000000000000000000000000000000000000
-00000000fffffffffffffffff888888f000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000ffffffffffffffff0886668f000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000ffffffffffffffff0886068f000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000111155ffff55111108c6608f000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-000000001111556ff65511110806668f000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-0000000011111166661111110008888f000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-000000000010016ff6100100f888888f000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-0000000000f00ffffff00f0055555555000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000fff6ffffff01110f00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000ff666fffff01110f00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000f15551fffff111ff00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000f05550ffff01110f00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000f01110ffff05550f00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000ff111fffff15551f00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000f01110fffff666ff00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000f01110ffffff6fff00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000ddddddddddddddddd888888d33333333343343434443444f4443444fc55cc55cc55cc55cc55cc55cc55cc55c00000000000000000000000000000000
+00000000dddddddddddddddd0886668d33333333333343344f443444444444445c5c55c55c5c55c55c5555c5555555c500000000000000000000000000000000
+00000000dddddddddddddddd0886068d3333333334343343444f444f43444444c555cc55c555cc55c5555c555555555500000000000000000000000000000000
+00000000111155dddd5511110886608d3333333343443f334f344f3444444f3455cc555c555c555c555c555c555c555500000000000000000000000000000000
+000000001111556dd655111108c6668d34434434444444444444444444444444c5c5c5ccc5c5c5c5c5c5c555c555c55500000000000000000000000000000000
+00000000111111666611111108c8888d4f344344444444444f44434444f444445c55555c5c55555c5c55555c5c55555c00000000000000000000000000000000
+000000000010016dd61001000008888d4444f34f444444444444f34f44444444555c5cc5555c5c55555c5c555555555500000000000000000000000000000000
+0000000000d00dddddd00d00d888888d343444443444f4443434444434444344cc55c555cc5555555c5555555c555c5500000000000000000000000000000000
+00000000dddd6dddd01110ddd77777dd655665566556555665555555a55aa55aa555a55aa555555a05050020ddd82ddd00000000000000000000000000000000
+00000000ddd666ddd01110dd7777777d5655556555555565555555655a5a55a5555a5555555a555502005000dd8882dd00000000000000000000000000000000
+00000000dd15551ddd111ddddf0f0fdd555565555555655555555555a555aa5555555a5555555a5550020050d888882d00000000000000000000000000000000
+00000000dd05550dd01110dddfffffdd65655555655555556555555555aa555a55a5555a55a55555200000208888888200000000000000000000000000000000
+00000000dd01110dd05550ddd6a6a6dd555565555555655555555565a5a5a5aaa55555a555555555000200009999999400000000000000000000000000000000
+00000000ddd111ddd15551dddfa6afdd5655555656555556565555555a55555a5a55555a5a55555a020005009449c19400000000000000000000000000000000
+00000000dd01110ddd666ddddfa6afdd655656555556565555555555555a5aa5555a5a55555a5a550050000294a91c9400000000000000000000000000000000
+00000000dd01110dddd6dddddd000ddd565555655555555555555555aa55a5555a55555555555555250020509449999400000000000000000000000000000000
 4443444f4443444f4443444f44434444655665566556655665565556655665566555555565555556333333333333333334334343334334330000000000000000
 4f4434444f4434444444444444444444565555655655556555555565565555655555556556555565333333333333333333334334343333330000000000000000
 444f444f444f444f4444444444444444555565555555655555556555555555555555555555555555333333333333333334343343433444340000000000000000
