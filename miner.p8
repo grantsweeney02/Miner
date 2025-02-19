@@ -17,6 +17,9 @@ MAX_BOOST_METER = 100
 BOOST_DEPLETION_RATE = MAX_BOOST_METER / 90
 BOOST_RECHARGE_RATE  = MAX_BOOST_METER / 180
 
+FUEL_COST = 0.1         
+DURABILITY_COST = 0.2   
+
 --------------------------------------------------------------------------------
 -- TILE & SPRITE DEFINITIONS
 --------------------------------------------------------------------------------
@@ -36,13 +39,12 @@ SPR_MINER_UP    = 49
 SPR_MINER_DOWN  = 50
 SPR_GAS_PUMP    = 35
 SPR_TRADER      = 51
-SPR_GRASS_FULL  = 36
-SPR_GRASS_BROKEN= 37
-SPR_DIRT        = {38,39}
-SPR_STONE       = {52,53,54}
-SPR_GOLD        = {55,56,57}
-SPR_DIAMOND     = {40,41,42,43}
-SPR_BEDROCK     = 58
+SPR_GRASS = {36,37}
+SPR_DIRT  = {38,39}
+SPR_STONE = {52,53,54}
+SPR_GOLD  = {55,56,57}
+SPR_DIAMOND = {40,41,42,43}
+SPR_BEDROCK = 58
 SPR_UPGRADE_HUT = 59
 
 game_over = false
@@ -55,7 +57,7 @@ ore_info = {
   [TILE_STONE]   = { sprites = SPR_STONE, durability = 3 },
   [TILE_GOLD]    = { sprites = SPR_GOLD, durability = 3 },
   [TILE_DIAMOND] = { sprites = SPR_DIAMOND, durability = 4 },
-  [TILE_GRASS]   = { sprites = {SPR_GRASS_FULL, SPR_GRASS_BROKEN}, durability = 2 }
+  [TILE_GRASS]   = { sprites = SPR_GRASS, durability = 2 }
 }
 
 --------------------------------------------------------------------------------
@@ -69,25 +71,22 @@ ore_values = {
 }
 
 --------------------------------------------------------------------------------
--- MINER
+-- MINER (Smooth Movement & Animation)
 --------------------------------------------------------------------------------
 miner = {
     x = 6 * GRID_SIZE,
     y = (surface_row - 1) * GRID_SIZE,
-    speed_pixels = 3,
+    speed_pixels = 1,            -- 1 pixel per frame (or 2 when boosted)
     direction = "right",
     anim_frame = 1,
     anim_timer = 0,
     sprites_right = {67, 68, 69, 70},
     sprites_left  = {83, 84, 85, 86},
     sprites_up    = {99, 100, 101, 102},
-    sprites_down  = {115, 116, 117, 118},
+    sprites_down  = {115,116,117,118},
     current_sprite = 67,
-    -- move_delay = 10,  -- not used anymore
-    -- move_timer = 0,   -- not used anymore
-    was_moving_up = false,
     inventory = {
-        [TILE_DIRT]    = 0, 
+        [TILE_DIRT]    = 0,
         [TILE_STONE]   = 0,
         [TILE_GOLD]    = 0,
         [TILE_DIAMOND] = 0
@@ -142,7 +141,7 @@ map[building_row][MAP_WIDTH - 2] = TILE_UPGRADE_HUT
 trader = {
     x = flr(MAP_WIDTH * 3/4) * GRID_SIZE,
     y = (surface_row - 1) * GRID_SIZE,
-    speed = 1,           -- slowed down
+    speed = 1,           -- 1 pixel per frame
     move_delay = 3,
     move_timer = 0,
     current_sprite = SPR_TRADER,
@@ -153,9 +152,7 @@ function update_trader()
     if miner.interacting_with_trader then return end
     trader.move_timer -= 1
     if trader.move_timer <= 0 then
-        if rnd() < 0.15 then
-            trader.direction = -trader.direction
-        end
+        if rnd() < 0.15 then trader.direction = -trader.direction end
         local left_bound = 2 * GRID_SIZE
         local right_bound = (MAP_WIDTH - 3) * GRID_SIZE
         local new_x = trader.x + trader.direction * trader.speed
@@ -174,10 +171,10 @@ end
 function trade_with_trader()
     local total = 0
     for tile, count in pairs(miner.inventory) do
-        total += count * ore_values[tile]
+        total = total + count * ore_values[tile]
         miner.inventory[tile] = 0
     end
-    miner.minerBucks += total
+    miner.minerBucks = miner.minerBucks + total
     print("trade complete: +" .. total .. " mb!", 1, 110, 11)
     miner.interacting_with_trader = false
 end
@@ -191,7 +188,7 @@ function draw_trade_menu()
     rect(menu_x, menu_y, menu_x + menu_width, menu_y + menu_height, 7)
     local text_y = menu_y + 4
     print("trader menu", menu_x + 8, text_y, 7)
-    text_y += 8
+    text_y = text_y + 8
     local order = {TILE_DIRT, TILE_STONE, TILE_GOLD, TILE_DIAMOND}
     local inv_names = {
       [TILE_DIRT]    = "dirt",
@@ -204,51 +201,65 @@ function draw_trade_menu()
       local name = inv_names[tile]
       local count = miner.inventory[tile] or 0
       print(name .. ": " .. count .. " @ " .. ore_values[tile], menu_x + 4, text_y, 7)
-      text_y += 8
+      text_y = text_y + 8
     end
     local trade_total = 0
     for tile, count in pairs(miner.inventory) do
-        trade_total += count * ore_values[tile]
+        trade_total = trade_total + count * ore_values[tile]
     end
     print("total: " .. trade_total, menu_x + 4, text_y, 7)
-    text_y += 8
+    text_y = text_y + 8
     print("press z to trade", menu_x + 4, text_y, 3)
-    text_y += 16
+    text_y = text_y + 16
     print("press x to cancel", menu_x + 4, text_y, 8)
 end
 
 --------------------------------------------------------------------------------
--- CAN_MOVE + COLLISION
+-- CAN_MOVE + COLLISION (using 8x8 bounding box)
 --------------------------------------------------------------------------------
 function can_move(new_x, new_y)
-    local grid_x = flr(new_x / GRID_SIZE)
-    local grid_y = flr(new_y / GRID_SIZE)
-    if grid_x < 0 or grid_x >= MAP_WIDTH or grid_y < 0 or grid_y >= MAP_HEIGHT then
-        return false
-    end
-    local cell = map[grid_y][grid_x]
-    if type(cell) == "table" then
-        local info = ore_info[cell.t]
-        cell.d -= 1
-        if cell.d > 0 then
-            local stage = (info.durability - cell.d) + 1
-            cell.sprite = info.sprites[stage]
-            return false
-        else
-            if cell.t == TILE_GRASS then
-                miner.inventory[TILE_DIRT] += 1
-            else
-                miner.inventory[cell.t] += 1
+    local checked = {}
+    local corners = {
+        {new_x, new_y},
+        {new_x + GRID_SIZE - 1, new_y},
+        {new_x, new_y + GRID_SIZE - 1},
+        {new_x + GRID_SIZE - 1, new_y + GRID_SIZE - 1}
+    }
+    for i, corner in ipairs(corners) do
+        local cx, cy = corner[1], corner[2]
+        local cell_x = flr(cx / GRID_SIZE)
+        local cell_y = flr(cy / GRID_SIZE)
+        local key = cell_x .. "," .. cell_y
+        if not checked[key] then
+            checked[key] = true
+            if cell_x < 0 or cell_x >= MAP_WIDTH or cell_y < 0 or cell_y >= MAP_HEIGHT then
+                return false
             end
-            map[grid_y][grid_x] = TILE_EMPTY
-            sfx(0)
-            return true
+            local cell = map[cell_y][cell_x]
+            if type(cell) == "table" then
+                local info = ore_info[cell.t]
+                cell.d = cell.d - DURABILITY_COST
+                if cell.d > 0 then
+                    local stage = flr((info.durability - cell.d) + 1)
+                    if stage < 1 then stage = 1 end
+                    if stage > #info.sprites then stage = #info.sprites end
+                    cell.sprite = info.sprites[stage]
+                    return false
+                else
+                    if cell.t == TILE_GRASS then
+                        miner.inventory[TILE_DIRT] = miner.inventory[TILE_DIRT] + 1
+                    else
+                        miner.inventory[cell.t] = miner.inventory[cell.t] + 1
+                    end
+                    map[cell_y][cell_x] = TILE_EMPTY
+                    sfx(0)
+                end
+            elseif cell == TILE_BEDROCK then
+                return false
+            end
         end
-    elseif cell == TILE_BEDROCK then
-        return false
-    else
-        return true
     end
+    return true
 end
 
 --------------------------------------------------------------------------------
@@ -261,14 +272,15 @@ function _update()
         return
     end
 
+    -- BOOST: Only allow boost if not trading (using btnp so it only triggers once)
     if not miner.interacting_with_trader then
-        if btn(4) and miner.boostMeter >= MAX_BOOST_METER then
+        if btnp(4) and miner.boostMeter >= MAX_BOOST_METER then
             miner.boostActive = true
         end
     end
 
     if miner.boostActive then
-        miner.boostMeter -= BOOST_DEPLETION_RATE
+        miner.boostMeter = miner.boostMeter - BOOST_DEPLETION_RATE
         if miner.boostMeter <= 0 then
             miner.boostMeter = 0
             miner.boostActive = false
@@ -290,43 +302,81 @@ function _update()
         return
     end
 
-    -- remove move_timer usage
     local dx, dy = 0, 0
-    if btn(0) then dx = -1; miner.direction = "left" end
-    if btn(1) then dx =  1; miner.direction = "right" end
-    if btn(2) then dy = -1; miner.direction = "up" end
-    if btn(3) then dy =  1; miner.direction = "down" end
+    if btn(0) then 
+        dx = -1 
+        if miner.direction ~= "left" then 
+            miner.direction = "left"
+            miner.current_sprite = miner.sprites_left[1]
+            miner.anim_frame = 1
+            miner.anim_timer = 0
+        end
+    end
+    if btn(1) then 
+        dx =  1 
+        if miner.direction ~= "right" then 
+            miner.direction = "right"
+            miner.current_sprite = miner.sprites_right[1]
+            miner.anim_frame = 1
+            miner.anim_timer = 0
+        end
+    end
+    if btn(2) then 
+        dy = -1 
+        if miner.direction ~= "up" then 
+            miner.direction = "up"
+            miner.current_sprite = miner.sprites_up[1]
+            miner.anim_frame = 1
+            miner.anim_timer = 0
+        end
+    end
+    if btn(3) then 
+        dy =  1 
+        if miner.direction ~= "down" then 
+            miner.direction = "down"
+            miner.current_sprite = miner.sprites_down[1]
+            miner.anim_frame = 1
+            miner.anim_timer = 0
+        end
+    end
 
-    -- if boost is active, optionally double speed_pixels
-    local px_speed = miner.boostActive and (miner.speed_pixels*2) or miner.speed_pixels
+    -- Snap perpendicular coordinate to grid when starting to move
+    if dx ~= 0 then
+        miner.y = flr(miner.y / GRID_SIZE) * GRID_SIZE
+    elseif dy ~= 0 then
+        miner.x = flr(miner.x / GRID_SIZE) * GRID_SIZE
+    end
 
-    for i = 1, px_speed do
-        local new_x = miner.x + dx
-        local new_y = miner.y + dy
-        if can_move(new_x, new_y) then
-            miner.x = new_x
-            miner.y = new_y
-            miner.fuel = max(0, miner.fuel - 0.01)  -- small per-pixel fuel cost if you want
-
-            miner.anim_timer += 1
-            if miner.anim_timer >= 2 then
-                miner.anim_timer = 0
-                miner.anim_frame = (miner.anim_frame % 4) + 1
-            end
-
-            if miner.direction == "left" then
-                miner.current_sprite = miner.sprites_left[miner.anim_frame]
-            elseif miner.direction == "right" then
-                miner.current_sprite = miner.sprites_right[miner.anim_frame]
-            elseif miner.direction == "up" then
-                miner.current_sprite = miner.sprites_up[miner.anim_frame]
-            elseif miner.direction == "down" then
-                miner.current_sprite = miner.sprites_down[miner.anim_frame]
+    if dx == 0 and dy == 0 then
+        -- Not moving: do nothing (animation remains on current frame)
+    else
+        local px_speed = miner.boostActive and (miner.speed_pixels * 2) or miner.speed_pixels
+        for i = 1, px_speed do
+            local new_x = miner.x + dx
+            local new_y = miner.y + dy
+            if can_move(new_x, new_y) then
+                miner.x = new_x
+                miner.y = new_y
+                miner.fuel = max(0, miner.fuel - FUEL_COST)
+                miner.anim_timer = miner.anim_timer + 1
+                if miner.anim_timer >= 2 then
+                    miner.anim_timer = 0
+                    miner.anim_frame = (miner.anim_frame % 4) + 1
+                end
+                if miner.direction == "left" then
+                    miner.current_sprite = miner.sprites_left[miner.anim_frame]
+                elseif miner.direction == "right" then
+                    miner.current_sprite = miner.sprites_right[miner.anim_frame]
+                elseif miner.direction == "up" then
+                    miner.current_sprite = miner.sprites_up[miner.anim_frame]
+                elseif miner.direction == "down" then
+                    miner.current_sprite = miner.sprites_down[miner.anim_frame]
+                end
             end
         end
     end
 
-    if miner.direction == "up" and miner.y < (surface_row*GRID_SIZE) then
+    if miner.direction == "up" and miner.y < (surface_row * GRID_SIZE) then
         miner.was_moving_up = true
     else
         miner.was_moving_up = false
@@ -344,16 +394,16 @@ function _update()
             if missing_fuel > 0 then
                 local cost = ceil(missing_fuel / 10)
                 if miner.minerBucks >= cost then
-                    miner.minerBucks -= cost
+                    miner.minerBucks = miner.minerBucks - cost
                     miner.fuel = miner.max_fuel
-                    print("refueled for " .. cost .. " mb!", 1, 120, 11)
+                    print("refueled for " .. cost .. " mb!", 1, 110, 11)
                 elseif miner.minerBucks > 0 then
                     local affordable_fuel = miner.minerBucks * 10
-                    miner.fuel += affordable_fuel
+                    miner.fuel = miner.fuel + affordable_fuel
                     miner.minerBucks = 0
-                    print("partial refuel: +" .. affordable_fuel .. " fuel", 1, 120, 10)
+                    print("partial refuel: +" .. affordable_fuel .. " fuel", 1, 110, 10)
                 else
-                    print("not enough mb to refuel!", 1, 120, 8)
+                    print("not enough mb to refuel!", 1, 110, 8)
                 end
             end
         end
@@ -369,13 +419,11 @@ end
 function _draw()
     cls(12)
     camera(0, cam_y)
-
     local surface_px = surface_row * GRID_SIZE
     local bedrock_px = BEDROCK_LEVEL * GRID_SIZE
     rectfill(0, 0, 127, surface_px - 1, 12)
     rectfill(0, surface_px, 127, bedrock_px - 1, 4)
     rectfill(0, bedrock_px, 127, MAP_HEIGHT * GRID_SIZE - 1, 0)
-
     for y = 0, MAP_HEIGHT - 1 do
         for x = 0, MAP_WIDTH - 1 do
             local cell = map[y][x]
@@ -398,7 +446,6 @@ function _draw()
     palt(13, true)
     palt(0, false)
     spr(miner.current_sprite, miner.x, miner.y)
-
     camera()
 
     print("minerbucks: " .. miner.minerBucks, 1, 1, 7)
