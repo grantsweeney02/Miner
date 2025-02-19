@@ -11,8 +11,11 @@ GRID_SIZE = 8
 MAP_WIDTH = 16
 MAP_HEIGHT = 32
 BEDROCK_LEVEL = MAP_HEIGHT - 2
-
 local surface_row = flr(SURFACE_HEIGHT / GRID_SIZE)
+
+MAX_BOOST_METER = 100
+BOOST_DEPLETION_RATE = MAX_BOOST_METER / 90
+BOOST_RECHARGE_RATE  = MAX_BOOST_METER / 180
 
 --------------------------------------------------------------------------------
 -- TILE & SPRITE DEFINITIONS
@@ -48,26 +51,11 @@ game_over = false
 -- ORE INFO
 --------------------------------------------------------------------------------
 ore_info = {
-  [TILE_DIRT] = {
-      sprites = SPR_DIRT,
-      durability = 2
-  },
-  [TILE_STONE] = {
-      sprites = SPR_STONE,
-      durability = 3
-  },
-  [TILE_GOLD] = {
-      sprites = SPR_GOLD,
-      durability = 3
-  },
-  [TILE_DIAMOND] = {
-      sprites = SPR_DIAMOND,
-      durability = 4
-  },
-  [TILE_GRASS] = {
-      sprites = {SPR_GRASS_FULL, SPR_GRASS_BROKEN},
-      durability = 2
-  }
+  [TILE_DIRT]    = { sprites = SPR_DIRT, durability = 2 },
+  [TILE_STONE]   = { sprites = SPR_STONE, durability = 3 },
+  [TILE_GOLD]    = { sprites = SPR_GOLD, durability = 3 },
+  [TILE_DIAMOND] = { sprites = SPR_DIAMOND, durability = 4 },
+  [TILE_GRASS]   = { sprites = {SPR_GRASS_FULL, SPR_GRASS_BROKEN}, durability = 2 }
 }
 
 --------------------------------------------------------------------------------
@@ -87,7 +75,6 @@ miner = {
     x = 6 * GRID_SIZE,
     y = (surface_row - 1) * GRID_SIZE,
     speed = GRID_SIZE,
-
     sprite_right = SPR_MINER_RIGHT,
     sprite_left  = SPR_MINER_LEFT,
     sprite_up    = SPR_MINER_UP,
@@ -96,17 +83,18 @@ miner = {
     move_delay = 10,
     move_timer = 0,
     was_moving_up = false,
-
     inventory = {
         [TILE_DIRT]    = 0, 
         [TILE_STONE]   = 0,
         [TILE_GOLD]    = 0,
         [TILE_DIAMOND] = 0
     },
-
     minerBucks = 100,
     fuel = 50,
-    max_fuel = 100
+    max_fuel = 100,
+    interacting_with_trader = false,
+    boostActive = false,
+    boostMeter = MAX_BOOST_METER
 }
 
 --------------------------------------------------------------------------------
@@ -144,7 +132,6 @@ end
 local building_row = surface_row - 1
 map[building_row][1] = TILE_GAS_PUMP
 map[building_row][MAP_WIDTH - 2] = TILE_UPGRADE_HUT
--- Trader tile removed from the map
 
 --------------------------------------------------------------------------------
 -- TRADER ENTITY
@@ -160,13 +147,16 @@ trader = {
 }
 
 function update_trader()
+    if miner.interacting_with_trader then return end
     trader.move_timer -= 1
     if trader.move_timer <= 0 then
-        if rnd() < 0.2 then
+        if rnd() < 0.15 then
             trader.direction = -trader.direction
         end
+        local left_bound = 2 * GRID_SIZE
+        local right_bound = (MAP_WIDTH - 3) * GRID_SIZE
         local new_x = trader.x + trader.direction * trader.speed
-        if new_x < 0 or new_x > (MAP_WIDTH - 1) * GRID_SIZE then
+        if new_x < left_bound or new_x > right_bound then
             trader.direction = -trader.direction
             new_x = trader.x + trader.direction * trader.speed
         end
@@ -176,16 +166,63 @@ function update_trader()
 end
 
 --------------------------------------------------------------------------------
+-- TRADE FUNCTIONS
+--------------------------------------------------------------------------------
+function trade_with_trader()
+    local total = 0
+    for tile, count in pairs(miner.inventory) do
+        total += count * ore_values[tile]
+        miner.inventory[tile] = 0
+    end
+    miner.minerBucks += total
+    print("trade complete: +" .. total .. " mb!", 1, 110, 11)
+    miner.interacting_with_trader = false
+end
+
+function draw_trade_menu()
+    local menu_x = 16
+    local menu_y = 16
+    local menu_width = 96
+    local menu_height = 74
+    rectfill(menu_x, menu_y, menu_x + menu_width, menu_y + menu_height, 0)
+    rect(menu_x, menu_y, menu_x + menu_width, menu_y + menu_height, 7)
+    local text_y = menu_y + 4
+    print("trader menu", menu_x + 8, text_y, 7)
+    text_y += 8
+    local order = {TILE_DIRT, TILE_STONE, TILE_GOLD, TILE_DIAMOND}
+    local inv_names = {
+      [TILE_DIRT]    = "dirt",
+      [TILE_STONE]   = "stone",
+      [TILE_GOLD]    = "gold",
+      [TILE_DIAMOND] = "diamond"
+    }
+    for i = 1, #order do
+      local tile = order[i]
+      local name = inv_names[tile]
+      local count = miner.inventory[tile] or 0
+      print(name .. ": " .. count .. " @ " .. ore_values[tile], menu_x + 4, text_y, 7)
+      text_y += 8
+    end
+    local trade_total = 0
+    for tile, count in pairs(miner.inventory) do
+        trade_total += count * ore_values[tile]
+    end
+    print("total: " .. trade_total, menu_x + 4, text_y, 7)
+    text_y += 8
+    print("press z to trade", menu_x + 4, text_y, 3)
+    text_y += 16
+    print("press x to cancel", menu_x + 4, text_y, 8)
+end
+
+--------------------------------------------------------------------------------
 -- CAN_MOVE + COLLISION
 --------------------------------------------------------------------------------
 function can_move(new_x, new_y)
     local grid_x = new_x / GRID_SIZE
     local grid_y = new_y / GRID_SIZE
-
     if grid_x < 0 or grid_x >= MAP_WIDTH or grid_y < 0 or grid_y >= MAP_HEIGHT then
         return false
     end
-
     local cell = map[grid_y][grid_x]
     if type(cell) == "table" then
         local info = ore_info[cell.t]
@@ -212,28 +249,41 @@ function can_move(new_x, new_y)
 end
 
 --------------------------------------------------------------------------------
--- AUTO-CONVERT (Deposit ores at/above grass)
---------------------------------------------------------------------------------
-function auto_convert()
-    if miner.y <= (surface_row * GRID_SIZE) then
-        for tile_id, tile_value in pairs(ore_values) do
-            local count = miner.inventory[tile_id]
-            if count and count > 0 then
-                miner.minerBucks += count * tile_value
-                miner.inventory[tile_id] = 0
-            end
-        end
-    end
-end
-
---------------------------------------------------------------------------------
 -- UPDATE
 --------------------------------------------------------------------------------
 function _update()
     if game_over then return end
-
     if miner.fuel <= 0 then
         game_over = true
+        return
+    end
+
+    if not miner.interacting_with_trader then
+        if btn(4) and miner.boostMeter >= MAX_BOOST_METER then
+            miner.boostActive = true
+        end
+    end
+
+    if miner.boostActive then
+        miner.boostMeter -= BOOST_DEPLETION_RATE
+        if miner.boostMeter <= 0 then
+            miner.boostMeter = 0
+            miner.boostActive = false
+        end
+    else
+        miner.boostMeter = mid(0, miner.boostMeter + BOOST_RECHARGE_RATE, MAX_BOOST_METER)
+    end
+
+    if abs(miner.x - trader.x) < GRID_SIZE and abs(miner.y - trader.y) < GRID_SIZE then
+        if btnp(5) then
+            miner.interacting_with_trader = not miner.interacting_with_trader
+        end
+    end
+
+    if miner.interacting_with_trader then
+        if btnp(4) then
+            trade_with_trader()
+        end
         return
     end
 
@@ -243,62 +293,54 @@ function _update()
     end
 
     if miner.x % GRID_SIZE == 0 and miner.y % GRID_SIZE == 0 then
-        local old_x, old_y = miner.x, miner.y
-        local new_x, new_y = old_x, old_y
-        local surface_px = surface_row * GRID_SIZE
+        local steps = miner.boostActive and 2 or 1
+        for s = 1, steps do
+            local old_x, old_y = miner.x, miner.y
+            local new_x, new_y = old_x, old_y
+            local surface_px = surface_row * GRID_SIZE
+            local fuel_cost = miner.boostActive and 1.5 or 1
 
-        if btn(0) and miner.x > 0 then
-            new_x -= miner.speed
-            miner.current_sprite = miner.sprite_left
-            miner.was_moving_up = false
-        end
-
-        if btn(1) and miner.x < (MAP_WIDTH - 1) * GRID_SIZE then
-            new_x += miner.speed
-            miner.current_sprite = miner.sprite_right
-            miner.was_moving_up = false
-        end
-
-        if btn(2) then
-            if miner.y > surface_px - GRID_SIZE then
-                new_y -= miner.speed
-                miner.current_sprite = miner.sprite_up
-                miner.was_moving_up = true
-            else
+            if btn(0) and miner.x > 0 then
+                new_x -= miner.speed
+                miner.current_sprite = miner.sprite_left
                 miner.was_moving_up = false
+            elseif btn(1) and miner.x < (MAP_WIDTH - 1) * GRID_SIZE then
+                new_x += miner.speed
                 miner.current_sprite = miner.sprite_right
+                miner.was_moving_up = false
+            elseif btn(2) then
+                if miner.y > surface_px - GRID_SIZE then
+                    new_y -= miner.speed
+                    miner.current_sprite = miner.sprite_up
+                    miner.was_moving_up = true
+                else
+                    miner.was_moving_up = false
+                    miner.current_sprite = miner.sprite_right
+                end
+            elseif btn(3) and miner.y < (BEDROCK_LEVEL - 1) * GRID_SIZE then
+                new_y += miner.speed
+                miner.current_sprite = miner.sprite_down
+                miner.was_moving_up = false
+            end
+
+            if new_x ~= old_x or new_y ~= old_y then
+                if can_move(new_x, new_y) then
+                    miner.x = new_x
+                    miner.y = new_y
+                    miner.fuel = max(0, miner.fuel - fuel_cost)
+                end
             end
         end
-
-        if btn(3) and miner.y < (BEDROCK_LEVEL - 1) * GRID_SIZE then
-            new_y += miner.speed
-            miner.current_sprite = miner.sprite_down
-            miner.was_moving_up = false
-        end
-
-        if can_move(new_x, new_y) then
-            if (new_x ~= old_x or new_y ~= old_y) then
-                miner.x = new_x
-                miner.y = new_y
-                miner.fuel = max(0, miner.fuel - 1)
-            end
-        end
-
         miner.move_timer = miner.move_delay
     end
 
-    local surface_px = surface_row * GRID_SIZE
-    if miner.y <= surface_px - GRID_SIZE and miner.was_moving_up then
-        miner.y = surface_px - GRID_SIZE
+    if miner.y <= (surface_row * GRID_SIZE) - GRID_SIZE and miner.was_moving_up then
+        miner.y = (surface_row * GRID_SIZE) - GRID_SIZE
         miner.current_sprite = miner.sprite_right
         miner.was_moving_up = false
     end
 
-    auto_convert()
-
-    local pump_x = 1 * GRID_SIZE
-    local pump_y = (surface_row - 1) * GRID_SIZE
-    if miner.x == pump_x and miner.y == pump_y then
+    if miner.x == 1 * GRID_SIZE and miner.y == (surface_row - 1) * GRID_SIZE then
         if btnp(5) then
             local missing_fuel = miner.max_fuel - miner.fuel
             if missing_fuel > 0 then
@@ -306,23 +348,21 @@ function _update()
                 if miner.minerBucks >= cost then
                     miner.minerBucks -= cost
                     miner.fuel = miner.max_fuel
-                    print("Refueled for " .. cost .. " MB!", 1, 120, 11)
+                    print("refueled for " .. cost .. " mb!", 1, 120, 11)
                 elseif miner.minerBucks > 0 then
                     local affordable_fuel = miner.minerBucks * 10
                     miner.fuel += affordable_fuel
                     miner.minerBucks = 0
-                    print("Partial refuel: +" .. affordable_fuel .. " fuel", 1, 120, 10)
+                    print("partial refuel: +" .. affordable_fuel .. " fuel", 1, 120, 10)
                 else
-                    print("Not enough MB to refuel!", 1, 120, 8)
+                    print("not enough mb to refuel!", 1, 120, 8)
                 end
             end
         end
     end
 
     update_trader()
-
-    local max_cam = MAP_HEIGHT * GRID_SIZE - 128
-    cam_y = mid(0, miner.y - 32, max_cam)
+    cam_y = mid(0, miner.y - 32, MAP_HEIGHT * GRID_SIZE - 128)
 end
 
 --------------------------------------------------------------------------------
@@ -330,15 +370,13 @@ end
 --------------------------------------------------------------------------------
 function _draw()
     cls(12)
-
     camera(0, cam_y)
 
     local surface_px = surface_row * GRID_SIZE
     local bedrock_px = BEDROCK_LEVEL * GRID_SIZE
-
     rectfill(0, 0, 127, surface_px - 1, 12)
     rectfill(0, surface_px, 127, bedrock_px - 1, 4)
-    rectfill(0, bedrock_px, 127, (MAP_HEIGHT * GRID_SIZE) - 1, 0)
+    rectfill(0, bedrock_px, 127, MAP_HEIGHT * GRID_SIZE - 1, 0)
 
     for y = 0, MAP_HEIGHT - 1 do
         for x = 0, MAP_WIDTH - 1 do
@@ -357,9 +395,7 @@ function _draw()
         end
     end
 
-    -- Draw trader
     spr(trader.current_sprite, trader.x, trader.y)
-
     palt()
     palt(13, true)
     palt(0, false)
@@ -368,7 +404,6 @@ function _draw()
     camera()
 
     print("minerbucks: " .. miner.minerBucks, 1, 1, 7)
-    print("Coords: (" .. miner.x .. ", " .. miner.y .. ")", 1, 10, 7)
 
     local bar_x = 70
     local bar_y = 1
@@ -377,28 +412,18 @@ function _draw()
     local fuel_ratio = miner.fuel / miner.max_fuel
     local fill_width = flr(bar_width * fuel_ratio)
     local bar_color = 11
-
     if fuel_ratio <= 0.3 then
         bar_color = 8
     elseif fuel_ratio < 0.7 then
         bar_color = 10
     end
-
     rectfill(bar_x, bar_y, bar_x + bar_width, bar_y + bar_height, 5)
     rectfill(bar_x, bar_y, bar_x + fill_width, bar_y + bar_height, bar_color)
     rect(bar_x, bar_y, bar_x + bar_width, bar_y + bar_height, 7)
     print("fuel", bar_x, bar_y + bar_height + 1, 7)
 
-    local pump_x = 1 * GRID_SIZE
-    local pump_y = (surface_row - 1) * GRID_SIZE
-    if miner.x == pump_x and miner.y == pump_y then
-        local missing_fuel = miner.max_fuel - miner.fuel
-        if missing_fuel > 0 then
-            local cost = ceil(missing_fuel / 10)
-            print("Hold X to refuel (" .. cost .. " MB)", 1, 14, 10)
-        else
-            print("Fuel tank full!", 1, 14, 11)
-        end
+    if abs(miner.x - trader.x) < GRID_SIZE and abs(miner.y - trader.y) < GRID_SIZE then
+        print("press x to trade", 1, 14, 10)
     end
 
     if game_over then
@@ -409,10 +434,45 @@ function _draw()
         rectfill(0, msg_y - 4, 128, msg_y + 8, 0)
         print(msg, msg_x, msg_y, 8)
     end
+
+    if miner.interacting_with_trader then
+        draw_trade_menu()
+    end
+
+    local boost_bar_width = 40
+    local boost_bar_height = 8
+    local boost_bar_x = 128 - boost_bar_width - 2
+    local boost_bar_y = 128 - boost_bar_height - 2
+    local boost_ratio = miner.boostMeter / MAX_BOOST_METER
+    local boost_fill_width = flr(boost_bar_width * boost_ratio)
+    rectfill(boost_bar_x, boost_bar_y, boost_bar_x + boost_bar_width, boost_bar_y + boost_bar_height, 5)
+    rectfill(boost_bar_x, boost_bar_y, boost_bar_x + boost_fill_width, boost_bar_y + boost_bar_height, 11)
+    rect(boost_bar_x, boost_bar_y, boost_bar_x + boost_bar_width, boost_bar_y + boost_bar_height, 7)
+    if miner.boostMeter >= MAX_BOOST_METER then
+        local text = "press z"
+        local text_w = #text * 4
+        local text_x = boost_bar_x + (boost_bar_width - text_w) / 2
+        local text_y = boost_bar_y + (boost_bar_height - 4) / 2
+        print(text, text_x, text_y, 7)
+    end
+
+    local pump_x = 1 * GRID_SIZE
+    local pump_y = (surface_row - 1) * GRID_SIZE
+    if miner.x == pump_x and miner.y == pump_y then
+        local missing_fuel = miner.max_fuel - miner.fuel
+        if missing_fuel > 0 then
+            local cost = ceil(missing_fuel / 10)
+            print("hold x to refuel (" .. cost .. " mb)", 1, 14, 10)
+        else
+            print("fuel tank full!", 1, 14, 11)
+        end
+    end
 end
 
 
-
+--------------------------------------------------------------------------------
+-- CODE END
+--------------------------------------------------------------------------------
 __gfx__
 00000000fffffffffffffffffffffffffffffffffffffff6ffffffffffffffffffffffffffffffffffffffff0000000000000000000000000000000000000000
 00000000ffffffffffffffffffffffffffffffffffffff666fffffffffffffffffffffffffffffffffffffff0000000000000000000000000000000000000000
