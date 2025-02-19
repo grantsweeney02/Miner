@@ -6,14 +6,13 @@ __lua__
 -- CONSTANTS
 --------------------------------------------------------------------------------
 cam_y = 0
-SURFACE_HEIGHT = 32  -- original
+SURFACE_HEIGHT = 32 -- row=4 => y=32 is grass
 GRID_SIZE = 8
 MAP_WIDTH = 16
 MAP_HEIGHT = 32
 BEDROCK_LEVEL = MAP_HEIGHT - 2
 
--- This calculates row=4 => y=32 for the grass
-local surface_row = flr(SURFACE_HEIGHT / GRID_SIZE)  -- 32/8=4
+local surface_row = flr(SURFACE_HEIGHT / GRID_SIZE) -- =4
 
 --------------------------------------------------------------------------------
 -- TILE & SPRITE DEFINITIONS
@@ -67,7 +66,6 @@ ore_info = {
       durability = 4
   },
   [TILE_GRASS] = {
-      -- behaves like dirt, but different sprites
       sprites = {SPR_GRASS_FULL, SPR_GRASS_BROKEN},
       durability = 2
   }
@@ -86,7 +84,7 @@ ore_values = {
 --------------------------------------------------------------------------------
 -- MINER
 --------------------------------------------------------------------------------
--- The miner starts one row ABOVE the grass row (row=3 => y=24).
+-- CHANGED: Start with 50 fuel and 100 minerBucks for testing
 miner = {
     x = 6 * GRID_SIZE,
     y = (surface_row - 1) * GRID_SIZE,  -- row=3 => y=24
@@ -108,8 +106,8 @@ miner = {
         [TILE_DIAMOND] = 0
     },
 
-    minerBucks = 0,
-    fuel = 40,
+    minerBucks = 100,  -- CHANGED
+    fuel = 50,         -- CHANGED
     max_fuel = 100
 }
 
@@ -121,54 +119,30 @@ for y = 0, MAP_HEIGHT - 1 do
     map[y] = {}
     for x = 0, MAP_WIDTH - 1 do
         if y < surface_row then
-            -- sky
             map[y][x] = TILE_EMPTY
-
         elseif y == surface_row then
-            -- row=4 => y=32 is grass
             map[y][x] = {
                 t = TILE_GRASS,
                 d = ore_info[TILE_GRASS].durability,
                 sprite = ore_info[TILE_GRASS].sprites[1]
             }
-
         elseif y >= BEDROCK_LEVEL then
-            -- bedrock
             map[y][x] = TILE_BEDROCK
-
         else
-            -- underground
             local r = rnd()
-            if y > 10 and r < 0.05 then
-                map[y][x] = {
-                    t = TILE_DIAMOND,
-                    d = ore_info[TILE_DIAMOND].durability,
-                    sprite = ore_info[TILE_DIAMOND].sprites[1]
-                }
-            elseif y > 6 and r < 0.20 then
-                map[y][x] = {
-                    t = TILE_GOLD,
-                    d = ore_info[TILE_GOLD].durability,
-                    sprite = ore_info[TILE_GOLD].sprites[1]
-                }
-            elseif y > 4 and r < 0.40 then
-                map[y][x] = {
-                    t = TILE_STONE,
-                    d = ore_info[TILE_STONE].durability,
-                    sprite = ore_info[TILE_STONE].sprites[1]
-                }
+            if y > 16 and r < 0.03 then
+                map[y][x] = { t = TILE_DIAMOND, d = ore_info[TILE_DIAMOND].durability, sprite = ore_info[TILE_DIAMOND].sprites[1] }
+            elseif y > 12 and r < 0.15 then
+                map[y][x] = { t = TILE_GOLD, d = ore_info[TILE_GOLD].durability, sprite = ore_info[TILE_GOLD].sprites[1] }
+            elseif y > 7 and r < 0.35 then
+                map[y][x] = { t = TILE_STONE, d = ore_info[TILE_STONE].durability, sprite = ore_info[TILE_STONE].sprites[1] }
             else
-                map[y][x] = {
-                    t = TILE_DIRT,
-                    d = ore_info[TILE_DIRT].durability,
-                    sprite = ore_info[TILE_DIRT].sprites[1]
-                }
+                map[y][x] = { t = TILE_DIRT, d = ore_info[TILE_DIRT].durability, sprite = ore_info[TILE_DIRT].sprites[1] }
             end
         end
     end
 end
 
--- BUILDINGS: also on row=3 => y=24, so they're clearly above the grass
 local building_row = surface_row - 1
 map[building_row][1] = TILE_GAS_PUMP
 map[building_row][MAP_WIDTH - 2] = TILE_UPGRADE_HUT
@@ -211,7 +185,7 @@ function can_move(new_x, new_y)
 end
 
 --------------------------------------------------------------------------------
--- AUTO-CONVERT (Deposit ores at/above grass row=4 => y=32)
+-- AUTO-CONVERT (Deposit ores at/above grass => row=4 => y=32)
 --------------------------------------------------------------------------------
 function auto_convert()
     if miner.y <= (surface_row * GRID_SIZE) then
@@ -242,10 +216,9 @@ function _update()
     end
 
     if miner.x % GRID_SIZE == 0 and miner.y % GRID_SIZE == 0 then
-        local old_x = miner.x
-        local old_y = miner.y
-        local new_x = old_x
-        local new_y = old_y
+        local old_x, old_y = miner.x, miner.y
+        local new_x, new_y = old_x, old_y
+        local surface_px   = surface_row * GRID_SIZE
 
         -- left
         if btn(0) and miner.x > 0 then
@@ -253,23 +226,27 @@ function _update()
             miner.current_sprite = miner.sprite_left
             miner.was_moving_up = false
         end
+
         -- right
         if btn(1) and miner.x < (MAP_WIDTH - 1) * GRID_SIZE then
             new_x += miner.speed
             miner.current_sprite = miner.sprite_right
             miner.was_moving_up = false
         end
+
         -- up
         if btn(2) then
-            -- only move up if we’re above row=0
-            if miner.y > 0 then
+            -- only move up if miner is below surface row
+            if miner.y > surface_px - GRID_SIZE then
                 new_y -= miner.speed
                 miner.current_sprite = miner.sprite_up
                 miner.was_moving_up = true
             else
                 miner.was_moving_up = false
+                miner.current_sprite = miner.sprite_right
             end
         end
+
         -- down
         if btn(3) and miner.y < (BEDROCK_LEVEL - 1) * GRID_SIZE then
             new_y += miner.speed
@@ -288,25 +265,46 @@ function _update()
         miner.move_timer = miner.move_delay
     end
 
-    -- clamp if moving up beyond row=0
-    if miner.y < 0 then
-        miner.y = 0
+    -- clamp if you just came up to surface
+    local surface_px = surface_row * GRID_SIZE
+    if miner.y <= surface_px - GRID_SIZE and miner.was_moving_up then
+        miner.y = surface_px - GRID_SIZE
+        miner.current_sprite = miner.sprite_right
+        miner.was_moving_up = false
     end
 
-    -- auto-convert if at/above row=4 => y=32
+    -- sell ore if at/above surface
     auto_convert()
 
-    -- fueling at gas pump on row=3 => y=24
+    -- fueling at gas pump
     local pump_x = 1 * GRID_SIZE
     local pump_y = (surface_row - 1) * GRID_SIZE
     if miner.x == pump_x and miner.y == pump_y then
-        if btnp(5) and miner.minerBucks >= 10 then
-            miner.minerBucks -= 10
-            miner.fuel = miner.max_fuel
+        if btnp(5) then  -- Press (X) to refuel
+            
+            local missing_fuel = miner.max_fuel - miner.fuel
+            if missing_fuel > 0 then
+                
+                local cost = ceil(missing_fuel / 10)  -- 1 MB per 10 fuel (rounded up)
+
+                if miner.minerBucks >= cost then
+                    -- Enough money → Full refill
+                    miner.minerBucks -= cost
+                    miner.fuel = miner.max_fuel
+                    print("Refueled for " .. cost .. " MB!", 1, 120, 11)
+                elseif miner.minerBucks > 0 then
+                    -- Partial refill if short on money
+                    local affordable_fuel = miner.minerBucks * 10
+                    miner.fuel += affordable_fuel
+                    miner.minerBucks = 0
+                    print("Partial refuel: +" .. affordable_fuel .. " fuel", 1, 120, 10)
+                else
+                    print("Not enough MB to refuel!", 1, 120, 8)
+                end
+            end
         end
     end
 
-    -- camera clamp
     local max_cam = MAP_HEIGHT * GRID_SIZE - 128
     cam_y = mid(0, miner.y - 32, max_cam)
 end
@@ -319,11 +317,12 @@ function _draw()
 
     camera(0, cam_y)
 
-    -- fill background for 128 px wide
-    -- row=4 => y=32 is grass
-    rectfill(0, 0, 127, (surface_row*GRID_SIZE) - 1, 12)               -- sky
-    rectfill(0, surface_row*GRID_SIZE, 127, (BEDROCK_LEVEL*GRID_SIZE) - 1, 4) -- dirt
-    rectfill(0, BEDROCK_LEVEL*GRID_SIZE, 127, (MAP_HEIGHT*GRID_SIZE) - 1, 0)  -- bedrock
+    local surface_px = surface_row * GRID_SIZE
+    local bedrock_px = BEDROCK_LEVEL * GRID_SIZE
+
+    rectfill(0, 0, 127, surface_px - 1, 12)       -- sky
+    rectfill(0, surface_px, 127, bedrock_px - 1, 4) -- dirt
+    rectfill(0, bedrock_px, 127, (MAP_HEIGHT*GRID_SIZE) - 1, 0) -- bedrock
 
     -- draw map
     for y = 0, MAP_HEIGHT - 1 do
@@ -376,16 +375,20 @@ function _draw()
     rect(bar_x, bar_y, bar_x + bar_width, bar_y + bar_height, 7)
     print("fuel", bar_x, bar_y + bar_height + 1, 7)
 
-    -- refuel prompt if on the gas pump tile
+    -- refuel prompt
     local pump_x = 1 * GRID_SIZE
     local pump_y = (surface_row - 1) * GRID_SIZE
+        -- Refuel Prompt with Dynamic Cost
     if miner.x == pump_x and miner.y == pump_y then
-        if miner.minerBucks >= 10 then
-            print("hold x to refuel (10 MB)", 1, 12, 10)
+        local missing_fuel = miner.max_fuel - miner.fuel
+        if missing_fuel > 0 then
+            local cost = ceil(missing_fuel / 10)  -- Dynamic cost calculation
+            print("Hold X to refuel (" .. cost .. " MB)", 1, 14, 10)
         else
-            print("need 10 mb to refuel", 1, 12, 8)
+            print("Fuel tank full!", 1, 14, 11)
         end
     end
+
 
     -- game over message
     if game_over then
@@ -465,7 +468,7 @@ a5a5a5aaa5a5a5aaa5a5a5a55555a5a55555a5a555555555c5c5c5ccc5c5c5ccc5c5c5ccc5c5c5cc
 555a5aa5555a5aa5555a5a55555a5aa5555a5a55555a5a55555c5cc5555c5cc5555c5cc5555c5cc5555c5c55555c5cc555555555555c55c50050000200500002
 aa55a555aa55a555a555a555aa55a555a5555555aa555555cc55c555cc55c555cc55c555cc55c555cc55c555cc55c555cc55c555cc55c5552500205025002050
 __sfx__
-0005000000000090500b0500f0501705020050270502d050320503f05000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0005000021050000002a0500000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 __music__
 00 01424344
 
