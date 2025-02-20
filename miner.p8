@@ -1,7 +1,6 @@
 pico-8 cartridge // http://www.pico-8.com
 version 42
 __lua__
-
 --------------------------------------------------------------------------------
 -- CONSTANTS
 --------------------------------------------------------------------------------
@@ -215,6 +214,35 @@ function draw_trade_menu()
 end
 
 --------------------------------------------------------------------------------
+-- TNT EXPLOSION FUNCTION
+--------------------------------------------------------------------------------
+function tnt_explosion()
+    -- determine the miner's current grid cell
+    local miner_cell_x = flr(miner.x / GRID_SIZE)
+    local miner_cell_y = flr(miner.y / GRID_SIZE)
+    -- iterate over the 3x3 area around the miner
+    for oy = -1, 1 do
+        for ox = -1, 1 do
+            local cx = miner_cell_x + ox
+            local cy = miner_cell_y + oy
+            if cx >= 0 and cx < MAP_WIDTH and cy >= 0 and cy < MAP_HEIGHT then
+                local cell = map[cy][cx]
+                if type(cell) == "table" then
+                    -- add mined ore to inventory (treat grass as dirt)
+                    if cell.t == TILE_GRASS then
+                        miner.inventory[TILE_DIRT] = miner.inventory[TILE_DIRT] + 1
+                    else
+                        miner.inventory[cell.t] = miner.inventory[cell.t] + 1
+                    end
+                    map[cy][cx] = TILE_EMPTY
+                    sfx(0)  -- play mining sound effect
+                end
+            end
+        end
+    end
+end
+
+--------------------------------------------------------------------------------
 -- CAN_MOVE + COLLISION (using 8x8 bounding box)
 --------------------------------------------------------------------------------
 function can_move(new_x, new_y)
@@ -265,8 +293,13 @@ end
 --------------------------------------------------------------------------------
 -- UPDATE
 --------------------------------------------------------------------------------
+function _init()
+    music(0,0) -- I got the music from Gruber here https://www.lexaloffle.com/bbs/?pid=38442
+end
+
 function _update()
     if game_over then return end
+
     if miner.fuel <= 0 then
         game_over = true
         return
@@ -276,6 +309,7 @@ function _update()
     if not miner.interacting_with_trader then
         if btnp(4) and miner.boostMeter >= MAX_BOOST_METER then
             miner.boostActive = true
+            tnt_explosion()  -- trigger TNT explosion when boost is activated
         end
     end
 
@@ -484,6 +518,7 @@ function _draw()
         draw_trade_menu()
     end
 
+    -- Modified Boost Bar Drawing Section
     local boost_bar_width = 40
     local boost_bar_height = 8
     local boost_bar_x = 128 - boost_bar_width - 2
@@ -491,14 +526,14 @@ function _draw()
     local boost_ratio = miner.boostMeter / MAX_BOOST_METER
     local boost_fill_width = flr(boost_bar_width * boost_ratio)
     rectfill(boost_bar_x, boost_bar_y, boost_bar_x + boost_bar_width, boost_bar_y + boost_bar_height, 5)
-    rectfill(boost_bar_x, boost_bar_y, boost_bar_x + boost_fill_width, boost_bar_y + boost_bar_height, 11)
+    rectfill(boost_bar_x, boost_bar_y, boost_bar_x + boost_fill_width, boost_bar_y + boost_bar_height, 8)  -- red fill
     rect(boost_bar_x, boost_bar_y, boost_bar_x + boost_bar_width, boost_bar_y + boost_bar_height, 7)
     if miner.boostMeter >= MAX_BOOST_METER then
-        local text = "press z"
+        local text = "tnt - 'z'"
         local text_w = #text * 4
         local text_x = boost_bar_x + (boost_bar_width - text_w) / 2
         local text_y = boost_bar_y + (boost_bar_height - 4) / 2
-        print(text, text_x, text_y, 7)
+        print(text, text_x, text_y, 0)  -- black text
     end
 
     local pump_x = 1 * GRID_SIZE
@@ -513,7 +548,6 @@ function _draw()
         end
     end
 end
-
 
 __gfx__
 00000000fffffffffffffffffffffffffffffffffffffff6ffffffffffffffffffffffffffffffffffffffff0000000000000000000000000000000000000000
@@ -582,6 +616,9 @@ dd01110dddd6dddd00000000ddd00d00ddd50d00ddd05d50ddd00d05000000000000000000000000
 000000000000000000000000ddd6ddddddd6ddddddd6ddddddd6dddd000000000000000000000000000000000000000000000000000000000000000000000000
 __sfx__
 0005000021050000002a0500000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0112000003744030250a7040a005137441302508744080251b7110a704037440302524615080240a7440a02508744087250a7040c0241674416025167251652527515140240c7440c025220152e015220150a525
+011200000c033247151f5152271524615227151b5051b5151f5201f5201f5221f510225212252022522225150c0331b7151b5151b715246151b5151b5051b515275202752027522275151f5211f5201f5221f515
 __music__
-00 01424344
+01 01024344
+02 01024344
 
