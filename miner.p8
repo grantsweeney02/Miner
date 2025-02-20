@@ -47,6 +47,7 @@ SPR_BEDROCK = 58
 SPR_UPGRADE_HUT = 59
 
 game_over = false
+music_playing = false
 
 --------------------------------------------------------------------------------
 -- ORE INFO
@@ -299,6 +300,10 @@ end
 
 function _update()
     if game_over then return end
+    if music_playing == false then 
+        music(0,0)
+        music_playing = true
+    end
 
     if miner.fuel <= 0 then
         game_over = true
