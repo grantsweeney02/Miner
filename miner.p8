@@ -12,6 +12,10 @@ BOOST_DEPLETION_RATE = MAX_BOOST_METER / 90 -- lasts 3 seconds
 BOOST_RECHARGE_RATE = MAX_BOOST_METER / 180 -- recharges in 6 seconds
 FUEL_COST = 0.1
 DURABILITY_COST = 0.2
+
+
+
+-- I got some of these sprites from this library https://nerdyteachers.com/PICO-8/Sprites/
 TILE_GRASS       = 0  
 TILE_EMPTY       = 1
 TILE_DIRT        = 2
@@ -21,7 +25,6 @@ TILE_DIAMOND     = 5
 TILE_BEDROCK     = 6
 TILE_GAS_PUMP    = 7
 TILE_UPGRADE_HUT = 9
-
 SPR_MINER_RIGHT = 33
 SPR_MINER_LEFT  = 34
 SPR_MINER_UP    = 49
@@ -81,6 +84,9 @@ miner = {
     boostActive = false,
     boostMeter = MAX_BOOST_METER
 }
+
+
+-- I ended up creating my own map in code because of the randomized ore spawning
 
 map = {}
 for y = 0, MAP_HEIGHT - 1 do
@@ -171,7 +177,7 @@ function draw_trade_menu()
       [TILE_GOLD]    = "gold",
       [TILE_DIAMOND] = "diamond"
     }
-    for i = 1, #order do
+    for i = 1, #order do -- https://www.lua.org/manual/5.3/manual.html#3.4.7 # gives you the length 
       tile = order[i]
       name = inv_names[tile]
       count = miner.inventory[tile] or 0
@@ -220,7 +226,7 @@ function can_move(new_x, new_y)
         {new_x, new_y + GRID_SIZE - 1},
         {new_x + GRID_SIZE - 1, new_y + GRID_SIZE - 1}
     }
-    for i, corner in ipairs(corners) do
+    for i, corner in ipairs(corners) do    -- https://pico-8.fandom.com/wiki/IPairs
         cx, cy = corner[1], corner[2]
         cell_x = flr(cx / GRID_SIZE)
         cell_y = flr(cy / GRID_SIZE)
@@ -482,7 +488,7 @@ function _draw()
     boost_ratio = miner.boostMeter / MAX_BOOST_METER
     boost_fill_width = flr(boost_bar_width * boost_ratio)
     rectfill(boost_bar_x, boost_bar_y, boost_bar_x + boost_bar_width, boost_bar_y + boost_bar_height, 5)
-    rectfill(boost_bar_x, boost_bar_y, boost_bar_x + boost_fill_width, boost_bar_y + boost_bar_height, 8)  -- red fill
+    rectfill(boost_bar_x, boost_bar_y, boost_bar_x + boost_fill_width, boost_bar_y + boost_bar_height, 8)
     rect(boost_bar_x, boost_bar_y, boost_bar_x + boost_bar_width, boost_bar_y + boost_bar_height, 7)
     if miner.boostMeter >= MAX_BOOST_METER then
         text = "tnt - 'z'"
@@ -578,4 +584,6 @@ __sfx__
 __music__
 01 01024344
 02 01024344
+
+-- https://www.lexaloffle.com/bbs/?uid=11292 the background music is from GRUBER, he did such an awesome job with his playlists
 
