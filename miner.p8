@@ -277,14 +277,15 @@ end
 function draw_instructions()
     cls(0)
 
-    print("how to play", 32, 10, 7)
+    print ("welcome to miner", 32, 10, 7)
+    print("how to play", 40, 20, 7)
     print("- move: arrow keys", 10, 30, 7)
     print("- dig: walk into blocks", 10, 40, 7)
     print("- tnt + boost: press 'z'", 10, 50, 7)
     print("- trade: press 'x' on trader", 10, 60, 7)
     print("- refuel: press 'x' on pump", 10, 70, 7)
     print("- earn money by selling ores", 10, 80, 7)
-    print("press x to start", 40, 100, 11)
+    print("press x to start", 32, 100, 11)
 
 end
 
@@ -685,6 +686,4 @@ __sfx__
 __music__
 01 01024344
 02 01024344
-
--- https://www.lexaloffle.com/bbs/?uid=11292 the background music is from GRUBER, he did such an awesome job with his playlists
 
