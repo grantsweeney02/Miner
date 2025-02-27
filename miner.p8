@@ -290,7 +290,7 @@ end
 
 
 function _init()
-    show_instructions = false
+    show_instructions = true
     game_over = false
     music_playing = false
     cam_y = 0
